@@ -47,4 +47,3 @@ end
 
 
 Bundler::GemHelper.install_tasks
-Bundler.setup
