@@ -1,8 +1,7 @@
 # -*- encoding: utf-8 -*-
 $:.push File.expand_path("../lib", __FILE__)
 require "calabash-android/version"
-require 'bundler'
-Bundler.setup
+
 Gem::Specification.new do |s|
   s.name        = "calabash-android"
   s.version     = Calabash::Android::VERSION
@@ -25,3 +24,4 @@ Gem::Specification.new do |s|
   s.add_dependency( 'httpclient', '~> 2.3.2')
   s.add_dependency( 'escape', '~> 0.0.4')
 end
+Bundler.setup
