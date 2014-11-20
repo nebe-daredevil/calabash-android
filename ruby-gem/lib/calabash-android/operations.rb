@@ -1158,6 +1158,18 @@ module Calabash module Android
 
       result['result']
     end
+    
+    def backdoor_tomtom(class_name, method_name, arguments = [], options={})
+      arguments = [arguments] unless arguments.is_a?(Array)
+
+      result = JSON.parse(http('/backdoor-tomtom', {class_name: class_name, method_name: method_name, arguments: arguments}))
+
+      if result['outcome'] != 'SUCCESS'
+        raise result.to_s
+      end
+
+      result['result']
+    end
 
     def map(query, method_name, *method_args)
       operation_map = {

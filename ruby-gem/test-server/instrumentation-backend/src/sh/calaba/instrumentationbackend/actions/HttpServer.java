@@ -199,6 +199,49 @@ public class HttpServer extends NanoHTTPD {
                 return new NanoHTTPD.Response(HTTP_OK, "application/json;charset=utf-8", FranklyResult.fromThrowable(ex).asJson());
             }
         }
+        else if (uri.endsWith("/backdoor-tomtom")) {
+        	try {
+        		String json = params.getProperty("json");
+                ObjectMapper mapper = new ObjectMapper();
+                Map backdoorMethod = mapper.readValue(json, Map.class);
+
+				String className = (String) backdoorMethod.get("class_name");
+                String methodName = (String) backdoorMethod.get("method_name");
+                List arguments = (List) backdoorMethod.get("arguments");
+                Operation operation = new InvocationOperation(methodName, arguments);
+                
+                Class c = Class.forName(className);
+                Object o = c.newInstance();
+                
+                Object invocationResult;
+                invocationResult = operation.apply(o);
+
+                if (invocationResult instanceof Map && ((Map) invocationResult).containsKey("error")) {
+                    Context context = getRootView().getContext();
+                    invocationResult = operation.apply(context);
+                }
+
+                Map<String, String> result = new HashMap<String, String>();
+
+                if (invocationResult instanceof Map && ((Map) invocationResult).containsKey("error")) {
+                    result.put("outcome", "ERROR");
+                    result.put("result", (String) ((Map) invocationResult).get("error"));
+                    result.put("details", invocationResult.toString());
+                } else {
+                    result.put("outcome", "SUCCESS");
+                    result.put("result", String.valueOf(invocationResult));
+                }
+
+                ObjectMapper resultMapper = new ObjectMapper();
+
+                return new NanoHTTPD.Response(HTTP_OK, "application/json;charset=utf-8", resultMapper.writeValueAsString(result));
+        	} catch (Exception e) {
+        		e.printStackTrace();
+                Exception ex = new Exception("Could not invoke method", e);
+
+                return new NanoHTTPD.Response(HTTP_OK, "application/json;charset=utf-8", FranklyResult.fromThrowable(ex).asJson());
+        	}
+        }
 		else if (uri.endsWith("/map")) {
 			FranklyResult errorResult = null;
 			try {
