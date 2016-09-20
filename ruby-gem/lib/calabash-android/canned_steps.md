@@ -174,7 +174,7 @@ Waits for a particular screen (Android Activity) to appear with a timeout.
 Waits for one second.
 
     Then /^I wait$/
-Waits for two seonds.
+Waits for two seconds.
   
     Then /^I wait for (\d+) seconds$/ do |seconds|
 Waits for a specified number of seconds.
@@ -208,19 +208,19 @@ To use a set of concrete GPS cordinates
 Internationalization
 --------------------
 
-	Then /^I press text of translated l10key (\d+)$/ 
+	Then /^I press text of translated l10nkey "?([^\"]*)"?$/ 
 Simulates that the user pressed the text of the l10nkey.	
 
-	Then /^I press button of translated l10key (\d+)$/
+	Then /^I press button of translated l10nkey "?([^\"]*)"?$/
 Simulates that the user pressed the button with the label text of the l10nkey.
 
-	Then /^I press menu item of translated l10key (\d+)$/
+	Then /^I press menu item of translated l10nkey "?([^\"]*)"?$/
 Simulates that the user pressed the menu item with the label text of the l10nkey.
 
-	Then /^I press toggle button of translated l10key (\d+)$/ 
+	Then /^I press toggle button of translated l10nkey "?([^\"]*)?"$/ 
 Simulates that the user pressed the toggle button with the label text of the l10nkey.	
 
-	Then /^I wait for the translated "([^\"]*)" l10nkey to appear$/ 
+	Then /^I wait for the translated "?([^\"]*)"? l10nkey to appear$/ 
 Waits until the text of the translated l10nkey is displayed.
 
 Note: you can assert or press interface elements using [Android's String resources](http://developer.android.com/reference/android/R.string.html) by passing a package in a custom step:

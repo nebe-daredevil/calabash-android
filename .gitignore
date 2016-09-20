@@ -9,14 +9,22 @@ instrumentation_backend/assets/foo.bar
 **/.DS_STORE
 ruby-gem/pkg
 ruby-gem/lib/calabash-android/lib/TestServer.apk
+ruby-gem/lib/calabash-android/lib/AndroidManifest.xml
 ruby-gem/test-server/out
-.rbenv-version
 calabash-android-*.gem
 .idea
 *.iml
 
-# rbenv
+# For a library or gem, ignore these files since the code is intended to run in
+# multiple environments; otherwise, check them in.
+Gemfile.lock
 .ruby-version
+.ruby-gemset
+.bundle
+
+# rspec
+ruby-gem/spec/reports
+ruby-gem/tmp
 
 # emacs and vim
 (.*/)?\#[^/]*\#$
@@ -25,3 +33,8 @@ tags
 # mergetools
 *.orig
 
+# Documentation cache and generated files:
+.yardoc
+_yardoc
+doc
+rdoc

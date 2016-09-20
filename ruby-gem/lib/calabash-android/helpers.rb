@@ -4,8 +4,16 @@ require 'tempfile'
 require 'escape'
 require 'rbconfig'
 require 'calabash-android/java_keystore'
+require 'calabash-android/environment'
+require 'calabash-android/logging'
+require 'calabash-android/dependencies'
+require 'calabash-android/version'
 
 def package_name(app)
+  unless File.exist?(app)
+    raise "Application '#{app}' does not exist"
+  end
+
   package_line = aapt_dump(app, "package").first
   raise "'package' not found in aapt output" unless package_line
   m = package_line.match(/name='([^']+)'/)
@@ -14,6 +22,10 @@ def package_name(app)
 end
 
 def main_activity(app)
+  unless File.exist?(app)
+    raise "Application '#{app}' does not exist"
+  end
+
   begin
     log("Trying to find launchable activity")
     launchable_activity_line = aapt_dump(app, "launchable-activity").first
@@ -25,7 +37,7 @@ def main_activity(app)
   rescue => e
     log("Could not find launchable activity, trying to parse raw AndroidManifest. #{e.message}")
 
-    manifest_data = `"#{Env.tools_dir}/aapt" dump xmltree "#{app}" AndroidManifest.xml`
+    manifest_data = `"#{Calabash::Android::Dependencies.aapt_path}" dump xmltree "#{app}" AndroidManifest.xml`
     regex = /^\s*A:[\s*]android:name\(\w+\)\=\"android.intent.category.LAUNCHER\"/
     lines = manifest_data.lines.collect(&:strip)
     indicator_line = nil
@@ -69,7 +81,7 @@ def main_activity(app)
 end
 
 def aapt_dump(app, key)
-  lines = `"#{Env.tools_dir}/aapt" dump badging "#{app}"`.lines.collect(&:strip)
+  lines = `"#{Calabash::Android::Dependencies.aapt_path}" dump badging "#{app}"`.lines.collect(&:strip)
   lines.select { |l| l.start_with?("#{key}:") }
 end
 
@@ -89,6 +101,8 @@ def build_test_server_if_needed(app_path)
       exit 1
     else
       puts "No test server found for this combination of app and calabash version. Recreating test server."
+      require 'calabash-android/operations'
+      require File.join(File.dirname(__FILE__), '..', '..', 'bin', 'calabash-android-build')
       calabash_build(app_path)
     end
   end
@@ -107,16 +121,34 @@ def resign_apk(app_path)
 end
 
 def unsign_apk(path)
-  files_to_remove = `"#{Env.tools_dir}/aapt" list "#{path}"`.lines.collect(&:strip).grep(/^META-INF\//)
+  meta_files = `"#{Calabash::Android::Dependencies.aapt_path}" list "#{path}"`.lines.collect(&:strip).grep(/^META-INF\//)
+
+  signing_file_names = ['.mf', '.rsa', '.dsa', '.ec', '.sf']
+
+  files_to_remove = meta_files.select do |file|
+    # other will be:
+    # META-INF/foo/bar
+    #  other #=> bar
+    directory, file_name, other = file.split('/')
+
+    if other != nil || file_name.nil?
+      false
+    else
+      if signing_file_names.include?(File.extname(file_name).downcase)
+        true
+      end
+    end
+  end
+
   if files_to_remove.empty?
     log "App wasn't signed. Will not try to unsign it."
   else
-    system("\"#{Env.tools_dir}/aapt\" remove \"#{path}\" #{files_to_remove.join(" ")}")
+    system("\"#{Calabash::Android::Dependencies.aapt_path}\" remove \"#{path}\" #{files_to_remove.join(" ")}")
   end
 end
 
 def zipalign_apk(inpath, outpath)
-  cmd = %Q("#{Env.zipalign_path}" -f 4 "#{inpath}" "#{outpath}")
+  cmd = %Q("#{Calabash::Android::Dependencies.zipalign_path}" -f 4 "#{inpath}" "#{outpath}")
   log "Zipaligning using: #{cmd}"
   system(cmd)
 end
@@ -138,14 +170,20 @@ def fingerprint_from_apk(app_path)
       FileUtils.cp(app_path, "app.apk")
       FileUtils.mkdir("META-INF")
       Zip::File.foreach("app.apk") do |z|
-        z.extract if /^META-INF\/\w+.(RSA|rsa)/ =~ z.name
+        z.extract if /^META-INF\/\w+.(rsa|dsa)/i =~ z.name
       end
-      rsa_files = Dir["#{tmp_dir}/META-INF/*"]
+      signature_files = Dir["#{tmp_dir}/META-INF/*"]
 
-      raise "No RSA file found in META-INF. Cannot proceed." if rsa_files.empty?
-      raise "More than one RSA file found in META-INF. Cannot proceed." if rsa_files.length > 1
+      log 'Signature files:'
 
-      cmd = "#{Env.keytool_path} -v -printcert -J\"-Dfile.encoding=utf-8\" -file \"#{rsa_files.first}\""
+      signature_files.each do |signature_file|
+        log signature_file
+      end
+
+      raise "No signature files found in META-INF. Cannot proceed." if signature_files.empty?
+      raise "More than one signature file (DSA or RSA) found in META-INF. Cannot proceed." if signature_files.length > 1
+
+      cmd = "\"#{Calabash::Android::Dependencies.keytool_path}\" -v -printcert -J\"-Dfile.encoding=utf-8\" -file \"#{signature_files.first}\""
       log cmd
       fingerprints = `#{cmd}`
       md5_fingerprint = extract_md5_fingerprint(fingerprints)
@@ -158,6 +196,12 @@ end
 def extract_md5_fingerprint(fingerprints)
   m = fingerprints.scan(/MD5.*((?:[a-fA-F\d]{2}:){15}[a-fA-F\d]{2})/).flatten
   raise "No MD5 fingerprint found:\n #{fingerprints}" if m.empty?
+  m.first
+end
+
+def extract_signature_algorithm_name(fingerprints)
+  m = fingerprints.scan(/Signature algorithm name: (.*)/).flatten
+  raise "No signature algorithm names found:\n #{fingerprints}" if m.empty?
   m.first
 end
 

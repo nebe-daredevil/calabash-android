@@ -1,3 +1,79 @@
+This CHANGELOG is no longer updated. See
+https://github.com/calabash/calabash-android/tree/master/changelog
+for details.
+
+
+0.5.13
+      Do not depend on any specific version of Cucumber
+      Grant all permissions when installing an app on M
+
+0.5.12
+      Fix Calabash WebView queries not working for new Android
+      System WebViews in Lollipop and M.
+
+0.5.11
+      Change the way Calabash (re)signs applications. Use the encryption
+      of the supplied keystore, and always use SHA1 as the digest
+      algorithm.
+
+0.5.10
+      Fix building and signing not working if the language of the
+      host computer was not English.
+
+0.5.9
+      Fix crosswalk queries giving wrong coordinates.
+
+      Fix client rescuing `Exceptions`
+
+      Support signing with DSA certificates
+
+      Support indexes in css/xpath queries.
+
+0.5.8
+      Handle `embed` if Calabash Android was 'included' instead of added
+      to the Cucumber World
+
+      Do depend on ANY retriable version >= 2
+
+      Fixed possible NPE in WebView queries
+
+0.5.7
+      Replaced calls to retriable with Retriable.retriable.
+
+0.5.6
+      Support for Crosswalk.
+
+      Support cordova Web Views of custom class name.
+
+      Don't fail JSON parsing on empty beans.
+
+      Rescue 'awesome print' LoadError in irbrc; don't fail silently.
+
+      Backdoor not finding any method to invoke in activities.
+
+0.5.5
+      Support for the newest versions of Cordova.
+
+      Change press_user_action_button now defaults to enter key (newline) in input fields with multiple lines.
+
+      Properly delegate all callbacks to the origin Web Chrome Client of the WebView being tested.
+
+      Run queries on the UI thread of the views. The query command could hang indefinitely in certain situations before this fix.
+
+0.5.4:
+      This version is only a fix of changes introduced in 0.5.3.
+
+      Fixed usage of old clear_text being invalid. Now calabash only prints a warning and proceeds.
+
+0.5.3:
+      Added methods to clear text in a specified view or the view that has focus.
+
+      Added ability to invoke javascript in webviews specified by a query.
+
+      Improved keystore handling.
+
+      Fixed issue with a gemspec that was too loose (Cucumber beta is not supported).
+
 0.5.2:
       Added generic multi touch gestures and many predefined gestures.
 

@@ -24,7 +24,7 @@ def print_usage
     build <apk>
       builds the test server that will be used when testing the app.
     run <apk>
-      runs Cucumber in the current folder with the enviroment needed.
+      runs Cucumber in the current folder with the environment needed.
     version
       prints the gem version
 
@@ -35,9 +35,6 @@ EOF
 end
 
 def print_help
-  file = File.join(File.dirname(__FILE__), '..', 'doc', 'calabash-android-help.txt')
-  #system("less #{file}")
-  #TODO
   print_usage
 end
 

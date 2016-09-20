@@ -12,6 +12,7 @@ module Calabash
       end
 
       def keyboard_enter_text(text, options = {})
+        wait_for_keyboard
         perform_action('keyboard_enter_text', text)
       end
 
@@ -19,22 +20,62 @@ module Calabash
         keyboard_enter_text(character[0,1], options)
       end
 
+      # Appends `text` into the first view matching `uiquery`.
       def enter_text(uiquery, text, options = {})
         tap_when_element_exists(uiquery, options)
         sleep 0.5
+        set_selection(-1, -1)
         keyboard_enter_text(text, options)
       end
 
-      def clear_text(query_string, options={})
-        result = query(query_string, setText: '')
+      def clear_text_in(query_string, options={})
+        touch(query_string, options)
+        sleep 0.5
+        clear_text(options)
+      end
 
-        raise "No elements found. Query: #{query_string}" if result.empty?
-
-        true
+      # Clears the text of the currently focused view.
+      def clear_text(options={})
+        set_selection(-1, -1)
+        sleep 0.1
+        perform_action("delete_surrounding_text", -1, 0)
       end
 
       def escape_quotes(str)
         str.gsub("'", "\\\\'")
+      end
+
+      # Sets the selection of the currently focused view.
+      #
+      # @param [Integer] selection_start The start of the selection, can be
+      #  negative to begin counting from the end of the string.
+      # @param [Integer] selection_end The end of the selection, can be
+      #  negative to begin counting from the end of the string.
+      def set_selection(selection_start, selection_end)
+        perform_action("set_selection", selection_start, selection_end)
+      end
+
+      def keyboard_visible?
+        input_method = `#{default_device.adb_command} shell dumpsys input_method`.force_encoding('UTF-8')
+        shown = input_method.each_line.grep(/mInputShown\s*=\s*(.*)/){$1}.first.chomp
+
+        if shown == "true"
+          true
+        elsif shown == "false"
+          false
+        else
+          raise "Could not detect keyboard visibility. '#{shown}'"
+        end
+      end
+
+      def wait_for_keyboard(opt={})
+        params = opt.clone
+        params[:timeout_message] ||= "Timed out waiting for the keyboard to appear"
+        params[:timeout] ||= 5
+
+        wait_for(params) do
+          keyboard_visible?
+        end
       end
     end
   end

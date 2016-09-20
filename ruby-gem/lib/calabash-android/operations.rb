@@ -11,14 +11,23 @@ require 'calabash-android/helpers'
 require 'calabash-android/environment_helpers'
 require 'calabash-android/text_helpers'
 require 'calabash-android/touch_helpers'
+require 'calabash-android/drag_helpers'
 require 'calabash-android/wait_helpers'
 require 'calabash-android/version'
 require 'calabash-android/env'
-require 'retriable'
+require 'calabash-android/environment'
+require 'calabash-android/dot_dir'
+require 'calabash-android/logging'
+require 'calabash-android/retry'
+require 'calabash-android/store/preferences'
+require 'calabash-android/usage_tracker'
+require 'calabash-android/dependencies'
 require 'cucumber'
 require 'date'
 require 'time'
+require 'shellwords'
 
+Calabash::Android::Dependencies.setup
 
 module Calabash module Android
 
@@ -27,9 +36,21 @@ module Calabash module Android
     include Calabash::Android::TextHelpers
     include Calabash::Android::TouchHelpers
     include Calabash::Android::WaitHelpers
+    include Calabash::Android::DragHelpers
+
+    def self.extended(base)
+      if (class << base; included_modules.map(&:to_s).include?('Cucumber::RbSupport::RbWorld'); end)
+        unless instance_methods.include?(:embed)
+          original_embed = base.method(:embed)
+          define_method(:embed) do |*args|
+            original_embed.call(*args)
+          end
+        end
+      end
+    end
 
     def current_activity
-      `#{default_device.adb_command} shell dumpsys window windows`.each_line.grep(/mFocusedApp.+[\.\/]([^.\s\/\}]+)/){$1}.first
+      `#{default_device.adb_command} shell dumpsys window windows`.force_encoding('UTF-8').each_line.grep(/mFocusedApp.+[\.\/]([^.\s\/\}]+)/){$1}.first
     end
 
     def log(message)
@@ -45,14 +66,11 @@ module Calabash module Android
     end
 
     def default_device
-      unless @default_device
-        @default_device = Device.new(self, ENV["ADB_DEVICE_ARG"], ENV["TEST_SERVER_PORT"], ENV["APP_PATH"], ENV["TEST_APP_PATH"])
-      end
-      @default_device
+      @@default_device ||= Device.new(self, ENV["ADB_DEVICE_ARG"], ENV["TEST_SERVER_PORT"], ENV["APP_PATH"], ENV["TEST_APP_PATH"])
     end
 
     def set_default_device(device)
-      @default_device = device
+      @@default_device = device
     end
 
     def performAction(action, *arguments)
@@ -121,8 +139,8 @@ module Calabash module Android
       default_device.push(local, remote)
     end
 
-    def start_test_server_in_background(options={})
-      default_device.start_test_server_in_background(options)
+    def start_test_server_in_background(options={}, &block)
+      default_device.start_test_server_in_background(options, &block)
     end
 
     def shutdown_test_server
@@ -168,6 +186,24 @@ module Calabash module Android
 
     def clear_preferences(name)
       default_device.clear_preferences(name)
+    end
+
+    def set_activity_orientation(orientation)
+      unless orientation.is_a?(Symbol)
+        raise ArgumentError, "Orientation is not a symbol"
+      end
+
+      unless orientation == :landscape || orientation == :portrait ||
+          orientation == :reverse_landscape || orientation == :reverse_portrait
+        raise ArgumentError, "Invalid orientation given. Use :landscape, :portrait, :reverse_landscape, or :reverse_portrait"
+      end
+
+      perform_action("set_activity_orientation", orientation.to_s)
+    end
+
+    # Note: Android 2.2 will always return either portrait or landscape, not reverse_portrait or reverse_landscape
+    def get_activity_orientation
+      perform_action("get_activity_orientation")
     end
 
     def query(uiquery, *args)
@@ -281,6 +317,10 @@ module Calabash module Android
         log `#{forward_cmd}`
       end
 
+      def _sdk_version
+        `#{adb_command} shell getprop ro.build.version.sdk`.to_i
+      end
+
       def reinstall_apps
         uninstall_app(package_name(@app_path))
         uninstall_app(package_name(@test_server_path))
@@ -294,7 +334,12 @@ module Calabash module Android
       end
 
       def install_app(app_path)
-        cmd = "#{adb_command} install \"#{app_path}\""
+        if _sdk_version >= 23
+          cmd = "#{adb_command} install -g \"#{app_path}\""
+        else
+          cmd = "#{adb_command} install \"#{app_path}\""
+        end
+
         log "Installing: #{app_path}"
         result = `#{cmd}`
         log result
@@ -305,10 +350,24 @@ module Calabash module Android
           ::Cucumber.wants_to_quit = true
           raise "#{pn} did not get installed. Reason: '#{result.lines.last.chomp}'. Aborting!"
         end
+
+        # Enable GPS location mocking on Android Marshmallow+
+        if _sdk_version >= 23
+          cmd = "#{adb_command} shell appops set #{package_name(app_path)} 58 allow"
+          log("Enabling GPS mocking using '#{cmd}'")
+          `#{cmd}`
+        end
+
+        true
       end
 
       def update_app(app_path)
-        cmd = "#{adb_command} install -r \"#{app_path}\""
+        if _sdk_version >= 23
+          cmd = "#{adb_command} install -rg \"#{app_path}\""
+        else
+          cmd = "#{adb_command} install -r \"#{app_path}\""
+        end
+
         log "Updating: #{app_path}"
         result = `#{cmd}`
         log "result: #{result}"
@@ -316,6 +375,7 @@ module Calabash module Android
 
         unless succeeded
           ::Cucumber.wants_to_quit = true
+          pn = package_name(app_path)
           raise "#{pn} did not get updated. Aborting!"
         end
       end
@@ -354,7 +414,7 @@ module Calabash module Android
         Timeout.timeout(300) do
           begin
             result = http("/", params, {:read_timeout => 350})
-          rescue Exception => e
+          rescue => e
             log "Error communicating with test server: #{e}"
             raise e
           end
@@ -367,7 +427,7 @@ module Calabash module Android
           result
         end
       rescue Timeout::Error
-        raise Exception, "Step timed out"
+        raise "Step timed out"
       end
 
       def http(path, data = {}, options = {})
@@ -379,6 +439,25 @@ module Calabash module Android
               :body => data.to_json,
               :uri => url_for(path),
               :header => {"Content-Type" => "application/json;charset=utf-8"})
+
+        rescue HTTPClient::TimeoutError,
+            HTTPClient::KeepAliveDisconnected,
+            Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED,
+            Errno::ETIMEDOUT => e
+          log "It looks like your app is no longer running. \nIt could be because of a crash or because your test script shut it down."
+          raise e
+        end
+      end
+
+      def http_put(path, data = {}, options = {})
+        begin
+
+          configure_http(@http, options)
+          make_http_request(
+              :method => :put,
+              :body => data,
+              :uri => url_for(path),
+              :header => {"Content-Type" => "application/octet-stream"})
 
         rescue HTTPClient::TimeoutError,
             HTTPClient::KeepAliveDisconnected,
@@ -419,12 +498,14 @@ module Calabash module Android
 
           response = if options[:method] == :post
                        @http.post(options[:uri], options)
+                     elsif options[:method] == :put
+                       @http.put(options[:uri], options)
                      else
                        @http.get(options[:uri], options)
                      end
           raise Errno::ECONNREFUSED if response.status_code == 502
           response.body
-        rescue Exception => e
+        rescue => e
           if @http
             @http.reset_all
             @http=nil
@@ -480,7 +561,7 @@ module Calabash module Android
             f.write res
           end
         else
-          screenshot_cmd = "java -jar #{File.join(File.dirname(__FILE__), 'lib', 'screenshotTaker.jar')} #{serial} \"#{path}\""
+          screenshot_cmd = "java -jar \"#{File.join(File.dirname(__FILE__), 'lib', 'screenshotTaker.jar')}\" #{serial} \"#{path}\""
           log screenshot_cmd
           raise "Could not take screenshot" unless system(screenshot_cmd)
         end
@@ -507,7 +588,7 @@ module Calabash module Android
       end
 
       def adb_command
-        "#{Env.adb_path} -s #{serial}"
+        "\"#{Calabash::Android::Dependencies.adb_path}\" -s #{serial}"
       end
 
       def default_serial
@@ -544,7 +625,7 @@ module Calabash module Android
       end
 
       def connected_devices
-        lines = `#{Env.adb_path} devices`.split("\n")
+        lines = `"#{Calabash::Android::Dependencies.adb_path}" devices`.split("\n")
         start_index = lines.index{ |x| x =~ /List of devices attached/ } + 1
         lines[start_index..-1].collect { |l| l.split("\t").first }
       end
@@ -555,7 +636,7 @@ module Calabash module Android
         log wake_up_cmd
         raise "Could not wake up the device" unless system(wake_up_cmd)
 
-        retriable :tries => 10, :interval => 1 do
+        Calabash::Android::Retry.retry :tries => 10, :interval => 1 do
           raise "Could not remove the keyguard" if keyguard_enabled?
         end
       end
@@ -575,17 +656,17 @@ module Calabash module Android
         raise "Could not push #{local} to #{remote}" unless system(cmd)
       end
 
-      def start_test_server_in_background(options={})
+      def start_test_server_in_background(options={}, &block)
         raise "Will not start test server because of previous failures." if ::Cucumber.wants_to_quit
 
         if keyguard_enabled?
           wake_up
         end
 
-        env_options = options
+        env_options = options.clone
+        env_options.delete(:intent)
 
-        env_options[:target_package] ||= package_name(@app_path)
-        env_options[:main_activity] ||= main_activity(@app_path)
+        env_options[:main_activity] ||= ENV['MAIN_ACTIVITY'] || 'null'
         env_options[:test_server_port] ||= @test_server_port
         env_options[:class] ||= "sh.calaba.instrumentationbackend.InstrumentationBackend"
 
@@ -605,12 +686,12 @@ module Calabash module Android
         log cmd
         raise "Could not execute command to start test server" unless system("#{cmd} 2>&1")
 
-        retriable :tries => 10, :interval => 1 do
+        Calabash::Android::Retry.retry :tries => 100, :interval => 0.1 do
           raise "App did not start" unless app_running?
         end
 
         begin
-          retriable :tries => 10, :interval => 3 do
+          Calabash::Android::Retry.retry :tries => 300, :interval => 0.1 do
             log "Checking if instrumentation backend is ready"
 
             log "Is app running? #{app_running?}"
@@ -622,7 +703,7 @@ module Calabash module Android
               log "Instrumentation backend is ready!"
             end
           end
-        rescue Exception => e
+        rescue => e
 
           msg = "Unable to make connection to Calabash Test Server at http://127.0.0.1:#{@server_port}/\n"
           msg << "Please check the logcat output for more info about what happened\n"
@@ -656,6 +737,29 @@ module Calabash module Android
         end
 
         log("Client and server versions match (client: #{client_version}, server: #{server_version}). Proceeding...")
+
+        block.call if block
+
+        start_application(options[:intent])
+
+        # What is Calabash tracking? Read this post for information
+        # No private data (like ip addresses) are collected
+        # https://github.com/calabash/calabash-android/issues/655
+        Calabash::Android::UsageTracker.new.post_usage_async
+      end
+
+      def start_application(intent)
+        begin
+          result = JSON.parse(http("/start-application", {intent: intent}, {read_timeout: 60}))
+        rescue HTTPClient::ReceiveTimeoutError => e
+          raise "Failed to start application. Starting took more than 60 seconds: #{e.class} - #{e.message}"
+        end
+
+        if result['outcome'] != 'SUCCESS'
+          raise result['detail']
+        end
+
+        result['result']
       end
 
       def shutdown_test_server
@@ -677,7 +781,7 @@ module Calabash module Android
       def set_gps_coordinates_from_location(location)
         require 'geocoder'
         results = Geocoder.search(location)
-        raise Exception, "Got no results for #{location}" if results.empty?
+        raise "Got no results for #{location}" if results.empty?
 
         best_result = results.first
         set_gps_coordinates(best_result.latitude, best_result.longitude)
@@ -732,7 +836,8 @@ module Calabash module Android
           params = hash.map {|k,v| "-e \"#{k}\" \"#{v}\""}.join(" ")
 
           logcat_id = get_logcat_id()
-          cmd = "#{adb_command} shell am instrument -e logcat #{logcat_id} -e name \"#{name}\" #{params} #{package_name(@test_server_path)}/sh.calaba.instrumentationbackend.SetPreferences"
+          am_cmd = Shellwords.escape("am instrument -e logcat #{logcat_id} -e name \"#{name}\" #{params} #{package_name(@test_server_path)}/sh.calaba.instrumentationbackend.SetPreferences")
+          cmd = "#{adb_command} shell #{am_cmd}"
 
           raise "Could not set preferences" unless system(cmd)
 
@@ -801,13 +906,13 @@ module Calabash module Android
       ni
     end
 
-    def screenshot_and_raise(msg, options = nil)
+    def screenshot_and_raise(e, options = nil)
       if options
         screenshot_embed options
       else
         screenshot_embed
       end
-      raise(msg)
+      raise e
     end
 
     def hide_soft_keyboard
@@ -837,6 +942,24 @@ module Calabash module Android
       default_device.http(path, data, options)
     end
 
+    def http_put(path, data = {}, options = {})
+      default_device.http_put(path, data, options)
+    end
+
+    # @return [String] The path of the uploaded file on the device
+    def upload_file(file_path)
+      name = File.basename(file_path)
+      device_tmp_path = http_put('/add-file', File.binread(file_path))
+      http('/move-cache-file-to-public', {from: device_tmp_path, name: name})
+    end
+
+    # @param [String] file_path Path of the file to load (.apk or .jar)
+    # @param [Array<String>] classes A list of classes to load from the file
+    def load_dylib(file_path, classes = [])
+      uploaded_file = upload_file(file_path)
+      http('/load-dylib', {path: uploaded_file, classes: classes})
+    end
+
     def html(q)
       query(q).map {|e| e['html']}
     end
@@ -847,6 +970,8 @@ module Calabash module Android
     end
 
     def press_user_action_button(action_name=nil)
+      wait_for_keyboard
+
       if action_name.nil?
         perform_action("press_user_action_button")
       else
@@ -1145,6 +1270,18 @@ module Calabash module Android
 
     def record_end(file_name)
       ni
+    end
+
+    def evaluate_javascript(query_string, javascript, opt={})
+      wait_for_elements_exist(query_string, {timeout: Calabash::Android::Defaults.query_timeout})
+      result = JSON.parse(http("/map", {query: query_string, operation: {method_name: 'execute-javascript'}, javascript: javascript}))
+
+      if result['outcome'] != 'SUCCESS' || result['results'].nil?
+        parsed_result = result['results'].map {|r| "\"#{r}\","}.join("\n")
+        raise "Could not evaluate javascript: \n#{parsed_result}"
+      end
+
+      result['results']
     end
 
     def backdoor(method_name, arguments = [], options={})

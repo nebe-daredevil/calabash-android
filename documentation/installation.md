@@ -1,63 +1,45 @@
 Installation
 ============
+
+For an in-depth guide see [the Xamarin docs for Calabash installation](https://developer.xamarin.com/guides/testcloud/calabash/configuring/)
+
+### Calabash Sandbox
+
+If you are new to Ruby or gem management, we suggest you use the [Calabash sandbox](https://github.com/calabash/install)
+
 ### Prerequisites
-You need to have Ruby installed. Verify your installation by running ruby -v in a terminal - it should print "ruby 1.8.7" (or higher).
+You need to have Ruby installed. Verify your installation by running ruby -v in a terminal - it should print "ruby 2.0.0" (or higher). We recommend using a managed version of Ruby like rbenv or rvm.
 
 If you are on Windows you can get Ruby from [RubyInstaller.org](http://rubyinstaller.org/)
 
+You'll also need to have the Java Development Kit (JDK) installed and available. Calabash will attempt to automatically find this from registry keys on windows, or monodroid config elsewhere, but you can also specify it explicitly by setting the `JAVA_HOME` environment variable to its location (e.g. C:\Program Files\Java\jdk1.8.0_20), or having the JDK binaries themselves (i.e. C:\Program Files\Java\jdk1.8.0_20\bin) in your path. 
+
 You should have the Android SDK installed. You can download it from [here](http://developer.android.com/sdk/index.html).  Create an environment variable with the name : `ANDROID_HOME` and its value pointing to the location of the unzipped downloaded SDK.
 
-You also need to have Ant installed and added to your path. It can be downloaded from [here](https://ant.apache.org/bindownload.cgi).
+To compile Calabash-Android from source, you will also need to have Ant installed and added to your path. It can be downloaded from [here](https://ant.apache.org/bindownload.cgi).
 
 ### Installation
 
-Install `calabash-android` by running
+We recommend *always* using Bundler to manage your version of Calabash.
 
-- `gem install calabash-android`
-- You might have to run `sudo gem install calabash-android` if you do not have the right permissions.
+Install `bundler` by running
 
+ - `gem install bundler`
 
+Create a file called "Gemfile" in the working directory. The Gemfile will contain all your Ruby dependencies.
 
-Troubleshooting Installation
-----------------------------
+As an example:
 
-### Mac
+```ruby
+# Contents of Gemfile
+source "https://rubygems.org"
 
-If you are on Mac you may see an error like this:
+gem 'calabash-android'
+gem 'cucumber'
+```
 
-    ~$ sudo gem install calabash-android
-    Password:
-    Building native extensions.  This could take a while...
-    ERROR:  Error installing calabash-android:
-  ERROR: Failed to build gem native extension.
+Install using `bundle install`. Remeber to regularly update your Calabash/Cucumber dependencies by running `bundle update`.
 
-    /System/Library/Frameworks/Ruby.framework/Versions/1.8/usr/bin/ruby extconf.rb
-    mkmf.rb can't find header files for ruby at /System/Library/Frameworks/Ruby.framework/Versions/1.8/usr/lib/ruby/ruby.h
+Run *all* commands by prefixing `bundler exec`, e.g. `bundle exec calabash-android run ...` or `bundle exec calabash-android console`...
 
-One possible cause can be not having the correct Command Line Tools (compiler
-tool chain) for your OS X release. For example, for OS X 10.8
-"Mountain Lion" you need the "Mountain Lion" version of these. If you
-have [Xcode](http://developer.apple.com/xcode/) installed you can
-install them from it's Preferences pane (in the Download tab).
-Otherwise you can download the Command Line Tools for you OS X version
-from the [Apple Developer web site](http://developer.apple.com/downloads/index.action).
-
-### Ubuntu
-
-These instructions assume you'll be using Ruby 1.9.1.
-
-Installing Ruby:
-
-    sudo apt-get install ruby1.9.1
-
-You might need to install the dev package when installing calabash:
-
-    sudo apt-get install ruby1.9.1-dev
-
-If you see something like this while installing calabash:
-
-    cannot load such file -- rspec/expectations (LoadError)
-
-It's because the rspec package isn't installed:
-
-    gem install rspec
+You should *never* install gems with sudo. If you are having issues installing bundler, we recommend using the Calabash Sandbox or using a managed version of Ruby, e.g. rbenv or rvm.
